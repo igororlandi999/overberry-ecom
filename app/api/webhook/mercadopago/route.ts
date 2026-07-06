@@ -164,9 +164,12 @@ export async function POST(request: Request) {
   }
 
   const sig = verifySignature(request, dataId);
+
   if (sig === false) {
-    console.warn("[webhook] assinatura inválida", { topic, dataId });
-    return NextResponse.json({ error: "invalid signature" }, { status: 401 });
+    console.warn("[webhook] assinatura inválida, seguindo com validação via API Mercado Pago", {
+      topic,
+      dataId,
+    });
   }
 
   const token = process.env.MERCADO_PAGO_ACCESS_TOKEN;
