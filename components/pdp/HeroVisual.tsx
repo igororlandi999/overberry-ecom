@@ -89,7 +89,7 @@ export default function HeroVisual() {
             aria-label={slot.alt}
             aria-current={active === i}
             title={slot.label}
-            className={`relative aspect-[4/5] w-[62px] overflow-hidden rounded-xl bg-gradient-to-b from-purple-900 to-plum-950 transition-all duration-200 ${
+            className={`relative aspect-[4/5] w-[62px] overflow-hidden rounded-xl bg-gradient-to-b from-purple-900 to-plum-950 transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-magenta ${
               active === i
                 ? "ring-2 ring-magenta ring-offset-2 ring-offset-plum-950"
                 : "opacity-65 ring-1 ring-white/10 hover:opacity-100 hover:ring-white/25"

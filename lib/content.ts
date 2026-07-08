@@ -14,9 +14,15 @@ export type Offer = {
 export const product = {
   name: "Açaí Liofilizado em Pó",
   weight: "100g",
-  h1: "Açaí de verdade, sem freezer e pronto em segundos.",
+  h1: "Açaí de verdade, agora em pó.",
   subtitle:
-    "Açaí liofilizado 100% natural, do Norte do Brasil. Para smoothies, bowls, iogurtes e receitas — sem freezer, sem açúcar, sem complicação.",
+    "100% açaí liofilizado do Norte do Brasil. Prepare bowls, smoothies e receitas em segundos — sem freezer, sem açúcar e sem desperdício.",
+  heroYield: {
+    powder: "100g",
+    powderLabel: "em pó",
+    prepared: "até 1kg",
+    preparedLabel: "preparado",
+  },
   heroBadges: [
     "100% natural",
     "Sem açúcar adicionado",
@@ -28,7 +34,7 @@ export const product = {
 export const offers: Offer[] = [
   { sku: "ob-100-1", label: "1 unidade", units: 1, price: 89.9, perServing: 4.5, servings: 20 },
   { sku: "ob-100-2", label: "Kit 2 unidades", units: 2, price: 169.9, perServing: 4.25, servings: 40, highlight: true, badge: "Mais escolhido" },
-  { sku: "ob-100-3", label: "Kit 3 unidades", units: 3, price: 239.9, perServing: 4.0, servings: 60 },
+  { sku: "ob-100-3", label: "Kit 3 unidades", units: 3, price: 239.9, perServing: 4.0, servings: 60, badge: "Melhor economia" },
 ];
 
 export const trustItems: { icon: IconName; label: string }[] = [

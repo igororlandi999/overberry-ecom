@@ -58,14 +58,16 @@ export default function BuyBox() {
                 "relative flex flex-col items-center rounded-xl border px-2 py-3 text-center transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-magenta",
                 active
                   ? "border-purple-700 bg-purple-700 text-cream shadow-md"
-                  : "border-line bg-white text-ink hover:border-purple-300"
+                  : o.highlight
+                    ? "border-magenta/60 bg-white text-ink shadow-sm hover:border-magenta"
+                    : "border-line bg-white text-ink hover:border-purple-300"
               )}
             >
               {o.badge && (
                 <span
                   className={clsx(
                     "absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wide",
-                    active ? "bg-magenta text-cream" : "bg-purple-100 text-purple-700"
+                    active || o.highlight ? "bg-magenta text-cream" : "bg-purple-100 text-purple-700"
                   )}
                 >
                   {o.badge}
@@ -88,7 +90,7 @@ export default function BuyBox() {
         onClick={handleAdd}
         className="group mt-5 flex min-h-[54px] w-full items-center justify-center gap-2 rounded-full bg-purple-700 font-body font-semibold text-cream transition-all hover:bg-purple-600 hover:shadow-glow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-magenta"
       >
-        {added ? "Adicionado ao carrinho" : "Adicionar ao carrinho"}
+        {added ? "Adicionado ao carrinho" : "Experimentar OverBerry"}
         {!added && (
           <span className="transition-transform group-hover:translate-x-1" aria-hidden="true">
             →
