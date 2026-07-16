@@ -1,13 +1,13 @@
 // Tipos compartilhados do checkout + helper client-side.
-// O client envia APENAS sku/qty/regiao. Precos sao reconstruidos no servidor.
-
-import type { RegionKey } from "@/lib/shipping";
+// O client envia APENAS sku/qty + CEP + serviço de frete escolhido.
+// Preços de produto e de frete são reconstruídos/recotados no servidor.
 
 export type CheckoutItemInput = { sku: string; qty: number };
 
 export type CheckoutRequest = {
   items: CheckoutItemInput[];
-  region: RegionKey | null;
+  shippingZip: string;       // CEP de destino (8 dígitos, sem máscara)
+  shippingServiceId: string; // id do serviço escolhido na cotação Melhor Envio
 };
 
 export type CheckoutResponse =

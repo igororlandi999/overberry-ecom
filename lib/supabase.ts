@@ -11,6 +11,12 @@ type OrderInsert = {
   shipping: number;
   total: number;
   items: unknown; // jsonb
+  shipping_zip: string;
+  shipping_carrier: string;
+  shipping_service: string;
+  shipping_service_id: string;
+  shipping_deadline: number; // dias úteis
+  shipping_quote: unknown;   // jsonb: custo real, valor cobrado, opção completa
 };
 
 type OrderPaymentUpdate = {

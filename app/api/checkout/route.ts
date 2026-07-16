@@ -1,19 +1,16 @@
 // Checkout Mercado Pago (Checkout Pro) — cria a preferência no servidor.
 //
 // Segurança:
-// - MERCADO_PAGO_ACCESS_TOKEN existe SOMENTE aqui (server). Nunca vai ao client.
-// - Nenhum preço vindo do client é usado: tudo é reconstruído de lib/content.ts
-//   e o frete é recalculado com lib/shipping.ts.
-//
-// PRÓXIMA FASE (não implementado aqui de propósito):
-// - Webhook de notificação do Mercado Pago para confirmar pagamento de verdade
-//   (back_urls indicam intenção, não confirmação) + registro do pedido em banco
-//   (Supabase). Até lá, /obrigado significa "pagamento iniciado/aprovado no
-//   redirect", não conciliação final.
+// - MERCADO_PAGO_ACCESS_TOKEN e MELHOR_ENVIO_TOKEN existem SOMENTE aqui (server).
+// - Nenhum preço vindo do client é usado: itens são reconstruídos de lib/content.ts
+//   e o frete é RECOTADO no Melhor Envio pelo CEP + serviço escolhido.
+// - Frete grátis: subtotal >= FREE_SHIPPING_THRESHOLD cobra R$ 0,00 do cliente,
+//   mas o custo real da etiqueta fica registrado em shipping_quote (Supabase).
 
 import { NextResponse } from "next/server";
 import { offers, product } from "@/lib/content";
-import { regions, shippingFor, type RegionKey } from "@/lib/shipping";
+import { FREE_SHIPPING_THRESHOLD } from "@/lib/shipping";
+import { quoteShipping, sanitizeZip } from "@/lib/melhorenvio";
 import type { CheckoutRequest } from "@/lib/checkout";
 import { insertOrder } from "@/lib/supabase";
 import { randomUUID } from "node:crypto";
@@ -21,6 +18,9 @@ import { randomUUID } from "node:crypto";
 const MAX_QTY = 99;
 
 const MP_PREFERENCES_URL = "https://api.mercadopago.com/checkout/preferences";
+
+const QUOTE_FAIL_MESSAGE =
+  "Não conseguimos calcular o frete agora. Tente novamente em instantes ou fale com a OverBerry para finalizar seu pedido.";
 
 function bad(error: string, status = 400) {
   return NextResponse.json({ ok: false, error }, { status });
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
   }
 
   const seen = new Set<string>();
-  const validated: { sku: string; title: string; qty: number; unitPrice: number }[] = [];
+  const validated: { sku: string; title: string; qty: number; unitPrice: number; units: number }[] = [];
 
   for (const raw of body.items) {
     if (!raw || typeof raw.sku !== "string") return bad("Item inválido no carrinho.");
@@ -67,19 +67,34 @@ export async function POST(request: Request) {
       title: `${product.name} ${product.weight} — ${offer.label}`,
       qty,
       unitPrice: offer.price, // preço do servidor, nunca do client
+      units: offer.units * qty,
     });
   }
 
-  // --- Subtotal e frete recalculados no servidor ---
   const subtotal = validated.reduce((sum, i) => sum + i.unitPrice * i.qty, 0);
+  const totalUnits = validated.reduce((sum, i) => sum + i.units, 0);
 
-  const region: RegionKey | null =
-    body.region && regions.some((r) => r.key === body.region) ? body.region : null;
+  // --- Frete: recotação no servidor (o client informa apenas CEP + serviço) ---
+  const zip = sanitizeZip(body.shippingZip ?? "");
+  if (!zip) return bad("Informe um CEP válido para o frete.");
 
-  const shipping = shippingFor(region, subtotal); // 0 se frete grátis; null se falta região
-  if (shipping === null) {
-    return bad("Selecione a região de entrega.");
+  if (typeof body.shippingServiceId !== "string" || body.shippingServiceId.length === 0) {
+    return bad("Escolha uma opção de frete.");
   }
+
+  const options = await quoteShipping({ toZip: zip, units: totalUnits, insuranceValue: subtotal });
+  if (!options) {
+    return bad(QUOTE_FAIL_MESSAGE, 502);
+  }
+
+  const option = options.find((o) => o.serviceId === body.shippingServiceId);
+  if (!option) {
+    return bad("A opção de frete escolhida não está mais disponível. Recalcule o frete e tente de novo.");
+  }
+
+  const freeShipping = subtotal >= FREE_SHIPPING_THRESHOLD;
+  const shipping = freeShipping ? 0 : option.price; // cobrado do cliente
+  // option.price = custo real da etiqueta, sempre registrado em shipping_quote.
 
   // --- Monta a preferência ---
   const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "");
@@ -93,10 +108,9 @@ export async function POST(request: Request) {
   }));
 
   if (shipping > 0) {
-    const regionLabel = regions.find((r) => r.key === region)?.label ?? "Brasil";
     items.push({
       id: "frete",
-      title: `Frete — ${regionLabel}`,
+      title: `Frete — ${option.carrier} ${option.service}`,
       quantity: 1,
       currency_id: "BRL",
       unit_price: shipping,
@@ -153,11 +167,24 @@ export async function POST(request: Request) {
       external_reference: externalReference,
       preference_id: data.id ?? null,
       status: "created",
-      region: region ?? "frete-gratis",
+      region: "melhor-envio", // compatibilidade com a coluna legada
       subtotal,
       shipping,
       total: subtotal + shipping,
       items: validated.map((i) => ({ sku: i.sku, title: i.title, qty: i.qty, unit_price: i.unitPrice })),
+      shipping_zip: zip,
+      shipping_carrier: option.carrier,
+      shipping_service: option.service,
+      shipping_service_id: option.serviceId,
+      shipping_deadline: option.deadline,
+      shipping_quote: {
+        real_price: option.price,       // custo real da etiqueta (Melhor Envio)
+        charged_price: shipping,        // valor cobrado do cliente (0 se frete grátis)
+        free_shipping: freeShipping,
+        package_units: totalUnits,
+        option,
+        quoted_at: new Date().toISOString(),
+      },
     });
     if (!saved) {
       console.error("[checkout] Pedido NÃO registrado no Supabase:", externalReference);

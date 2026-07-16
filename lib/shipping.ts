@@ -1,7 +1,7 @@
 // Politica de frete do MVP. Frete fixo por regiao.
 // Frete gratis para pedidos a partir do limite (foco em kits).
 
-export const FREE_SHIPPING_THRESHOLD = 179.9;
+export const FREE_SHIPPING_THRESHOLD = 169.9;
 
 export type RegionKey = "sudeste" | "sul" | "centro-oeste" | "norte-nordeste";
 

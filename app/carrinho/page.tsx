@@ -1,15 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useCart } from "@/lib/cart";
 import { brl } from "@/lib/format";
-import {
-  regions,
-  shippingFor,
-  isFreeShipping,
-  type RegionKey,
-} from "@/lib/shipping";
+import { isFreeShipping } from "@/lib/shipping";
+import type { ShippingOption } from "@/lib/melhorenvio"; // type-only: nada do server vaza ao client
 import CartLineItem from "@/components/cart/CartLineItem";
 import EmptyCart from "@/components/cart/EmptyCart";
 import FreeShippingBar from "@/components/cart/FreeShippingBar";
@@ -17,25 +13,89 @@ import { Button } from "@/components/ui/Button";
 import Icon from "@/components/ui/Icon";
 import { startCheckout } from "@/lib/checkout";
 
+/** Máscara visual 00000-000. */
+function maskCep(raw: string): string {
+  const d = raw.replace(/\D/g, "").slice(0, 8);
+  return d.length > 5 ? `${d.slice(0, 5)}-${d.slice(5)}` : d;
+}
+
 export default function CartPage() {
   const items = useCart((s) => s.items);
   const subtotal = useCart((s) => s.subtotal());
-  const [region, setRegion] = useState<RegionKey | null>(null);
+
+  const [cep, setCep] = useState("");
+  const [quoting, setQuoting] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [options, setOptions] = useState<ShippingOption[] | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const free = isFreeShipping(subtotal);
-  const shipping = shippingFor(region, subtotal); // number | null
+  const cepDigits = cep.replace(/\D/g, "");
+  const cepValid = cepDigits.length === 8;
+
+  // Assinatura do carrinho: se itens/quantidades mudarem, a cotação anterior perde validade.
+  const cartSignature = useMemo(
+    () => items.map((i) => `${i.sku}:${i.qty}`).join(","),
+    [items]
+  );
+  useEffect(() => {
+    setOptions(null);
+    setSelectedId(null);
+    setQuoteError(null);
+  }, [cartSignature]);
+
+  const selected = options?.find((o) => o.serviceId === selectedId) ?? null;
+  const shipping = selected ? (free ? 0 : selected.price) : null;
   const total = subtotal + (shipping ?? 0);
-  const canCheckout = items.length > 0 && (free || region !== null) && !loading;
+  const canCheckout = items.length > 0 && selected !== null && !loading && !quoting;
+
+  const handleQuote = async () => {
+    if (quoting || !cepValid || items.length === 0) return;
+    setQuoting(true);
+    setQuoteError(null);
+    setOptions(null);
+    setSelectedId(null);
+    try {
+      const res = await fetch("/api/shipping/quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          zip: cepDigits,
+          items: items.map((i) => ({ sku: i.sku, qty: i.qty })),
+        }),
+      });
+      const data = (await res.json()) as
+        | { ok: true; options: ShippingOption[] }
+        | { ok: false; error: string };
+      if (!res.ok || !data.ok) {
+        setQuoteError(
+          (!data.ok && data.error) ||
+            "Não conseguimos calcular o frete agora. Tente novamente em instantes ou fale com a OverBerry para finalizar seu pedido."
+        );
+        return;
+      }
+      setOptions(data.options);
+      if (data.options.length === 1) setSelectedId(data.options[0].serviceId);
+    } catch {
+      setQuoteError(
+        "Não conseguimos calcular o frete agora. Tente novamente em instantes ou fale com a OverBerry para finalizar seu pedido."
+      );
+    } finally {
+      setQuoting(false);
+    }
+  };
 
   const handleCheckout = async () => {
-    if (loading) return; // evita duplo clique
+    if (loading || !selected) return; // evita duplo clique
     setLoading(true);
     setError(null);
     const res = await startCheckout({
       items: items.map((i) => ({ sku: i.sku, qty: i.qty })),
-      region,
+      shippingZip: cepDigits,
+      shippingServiceId: selected.serviceId,
     });
     if (res.ok) {
       window.location.href = res.init_point; // redireciona ao Mercado Pago
@@ -44,6 +104,7 @@ export default function CartPage() {
     setError(res.error);
     setLoading(false);
   };
+
   const itemCount = items.reduce((sum, i) => sum + i.qty, 0);
 
   return (
@@ -91,23 +152,81 @@ export default function CartPage() {
               </div>
 
               <div className="px-6 py-5">
-                {/* Frete por regiao */}
-                <label className="eyebrow text-purple-600" htmlFor="regiao">
-                  Região de entrega
+                {/* Frete por CEP */}
+                <label className="eyebrow text-purple-600" htmlFor="cep">
+                  Calcular frete
                 </label>
-                <select
-                  id="regiao"
-                  value={region ?? ""}
-                  onChange={(e) => setRegion((e.target.value || null) as RegionKey | null)}
-                  className="mt-2 min-h-[52px] w-full rounded-xl border border-line bg-cream px-4 font-body text-ink transition-colors focus:border-purple-500 focus:outline focus:outline-2 focus:outline-purple-500"
-                >
-                  <option value="">Selecione a região</option>
-                  {regions.map((r) => (
-                    <option key={r.key} value={r.key}>
-                      {r.label} — {brl(r.rate)}
-                    </option>
-                  ))}
-                </select>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    id="cep"
+                    inputMode="numeric"
+                    autoComplete="postal-code"
+                    placeholder="00000-000"
+                    value={cep}
+                    onChange={(e) => setCep(maskCep(e.target.value))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleQuote();
+                    }}
+                    className="min-h-[52px] w-full rounded-xl border border-line bg-cream px-4 font-body text-ink transition-colors focus:border-purple-500 focus:outline focus:outline-2 focus:outline-purple-500"
+                  />
+                  <Button
+                    variant="secondary"
+                    disabled={!cepValid || quoting}
+                    onClick={handleQuote}
+                    className="shrink-0"
+                  >
+                    {quoting ? "Calculando…" : "Calcular"}
+                  </Button>
+                </div>
+
+                {quoteError && (
+                  <p role="alert" className="mt-3 rounded-xl border border-magenta/30 bg-purple-100 px-4 py-3 font-body text-xs text-magenta-soft">
+                    {quoteError}
+                  </p>
+                )}
+
+                {options && options.length > 0 && (
+                  <fieldset className="mt-4">
+                    <legend className="sr-only">Opções de frete</legend>
+                    <div className="space-y-2">
+                      {options.map((o) => {
+                        const active = o.serviceId === selectedId;
+                        return (
+                          <label
+                            key={o.serviceId}
+                            className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-colors ${
+                              active
+                                ? "border-purple-500 bg-purple-100/60 ring-1 ring-purple-500"
+                                : "border-line bg-cream hover:border-purple-300"
+                            }`}
+                          >
+                            <span className="flex items-center gap-3">
+                              <input
+                                type="radio"
+                                name="frete"
+                                value={o.serviceId}
+                                checked={active}
+                                onChange={() => setSelectedId(o.serviceId)}
+                                className="h-4 w-4 accent-purple-600"
+                              />
+                              <span className="font-body text-sm">
+                                <span className="block font-semibold text-ink">
+                                  {o.carrier} — {o.service}
+                                </span>
+                                <span className="block text-xs text-ink-soft">
+                                  Até {o.deadline} {o.deadline === 1 ? "dia útil" : "dias úteis"}
+                                </span>
+                              </span>
+                            </span>
+                            <span className={`font-body text-sm font-semibold tabular-nums ${free ? "text-green-700" : "text-ink"}`}>
+                              {free ? "Grátis" : brl(o.price)}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+                )}
 
                 {/* Totais */}
                 <dl className="mt-5 space-y-2.5 border-t border-line pt-5 font-body text-sm">
@@ -117,11 +236,11 @@ export default function CartPage() {
                   </div>
                   <div className="flex justify-between">
                     <dt className="text-ink-soft">Frete</dt>
-                    <dd className={`tabular-nums ${free ? "font-semibold text-green-700" : "text-ink"}`}>
-                      {free
-                        ? "Grátis"
-                        : shipping === null
-                          ? "A calcular"
+                    <dd className={`tabular-nums ${free && selected ? "font-semibold text-green-700" : "text-ink"}`}>
+                      {shipping === null
+                        ? "A calcular"
+                        : shipping === 0
+                          ? "Grátis"
                           : brl(shipping)}
                     </dd>
                   </div>
@@ -140,9 +259,11 @@ export default function CartPage() {
                   {loading ? "Redirecionando ao pagamento…" : "Finalizar compra"}
                 </Button>
 
-                {!free && region === null && (
+                {selected === null && (
                   <p className="mt-2 text-center font-body text-xs text-ink-soft">
-                    Selecione a região para calcular o total.
+                    {options && options.length > 0
+                      ? "Escolha uma opção de frete para continuar."
+                      : "Informe o CEP e calcule o frete para continuar."}
                   </p>
                 )}
 
